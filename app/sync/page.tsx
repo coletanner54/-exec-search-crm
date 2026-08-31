@@ -13,7 +13,8 @@ export default function SyncPage() {
   const [syncing, setSyncing] = useState<string | null>(null)
   const [syncingAll, setSyncingAll] = useState(false)
   const [syncingCTNotes, setSyncingCTNotes] = useState(false)
-  const [ctNotesResult, setCTNotesResult] = useState<{ contactsAdded: number; contactsUpdated: number; notesAdded: number } | null>(null)
+  const [ctNotesProgress, setCTNotesProgress] = useState<{ tablesProcessed: number; totalTables: number; contactsAdded: number; notesAdded: number } | null>(null)
+  const [ctNotesDone, setCTNotesDone] = useState(false)
 
   async function fetchData() {
     const [sRes, lRes] = await Promise.all([
@@ -49,11 +50,39 @@ export default function SyncPage() {
 
   async function syncCTNotes() {
     setSyncingCTNotes(true)
-    setCTNotesResult(null)
-    const res = await fetch('/api/sync/ct-notes', { method: 'POST' }).catch(() => null)
-    const data = res ? await res.json() : {}
-    if (data.success) setCTNotesResult(data)
+    setCTNotesProgress(null)
+    setCTNotesDone(false)
+
+    let startIndex = 0
+    let totalAdded = 0
+    let totalNotes = 0
+
+    while (true) {
+      const res = await fetch('/api/sync/ct-notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ startIndex }),
+      }).catch(() => null)
+
+      const data = res ? await res.json() : {}
+      if (!data.success) break
+
+      totalAdded += data.contactsAdded ?? 0
+      totalNotes += data.notesAdded ?? 0
+
+      setCTNotesProgress({
+        tablesProcessed: data.tablesProcessed,
+        totalTables: data.totalTables,
+        contactsAdded: totalAdded,
+        notesAdded: totalNotes,
+      })
+
+      if (!data.hasMore) break
+      startIndex = data.nextIndex
+    }
+
     setSyncingCTNotes(false)
+    setCTNotesDone(true)
     fetchData()
   }
 
@@ -93,11 +122,24 @@ export default function SyncPage() {
             {syncingCTNotes ? 'Syncing...' : 'Sync CT Notes'}
           </Button>
         </div>
-        {ctNotesResult && (
-          <div className="mt-3 pt-3 border-t border-gray-100 flex gap-6 text-sm">
-            <span className="text-green-600">+{ctNotesResult.contactsAdded} contacts added</span>
-            <span className="text-blue-600">~{ctNotesResult.contactsUpdated} updated</span>
-            <span className="text-gray-500">+{ctNotesResult.notesAdded} notes</span>
+        {(syncingCTNotes || ctNotesProgress) && (
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            {ctNotesProgress && (
+              <div className="flex gap-6 text-sm mb-2">
+                <span className="text-green-600">+{ctNotesProgress.contactsAdded} contacts added</span>
+                <span className="text-gray-500">+{ctNotesProgress.notesAdded} notes</span>
+                <span className="text-gray-400">{ctNotesProgress.tablesProcessed} of {ctNotesProgress.totalTables} sections</span>
+              </div>
+            )}
+            {syncingCTNotes && (
+              <div className="w-full bg-gray-100 rounded-full h-1.5">
+                <div
+                  className="bg-purple-500 h-1.5 rounded-full transition-all duration-500"
+                  style={{ width: ctNotesProgress ? `${(ctNotesProgress.tablesProcessed / ctNotesProgress.totalTables) * 100}%` : '5%' }}
+                />
+              </div>
+            )}
+            {ctNotesDone && <p className="text-sm text-green-600 font-medium">✓ Sync complete</p>}
           </div>
         )}
       </div>
