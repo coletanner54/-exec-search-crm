@@ -2,22 +2,34 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { listTables, getAllRows, extractContactFromRow, listRows } from '@/lib/coda'
 
-// GET: diagnostic — returns first table name + first 2 rows of raw data
+// GET: diagnostic — explore page hierarchy to find candidate pages
 export async function GET() {
   try {
-    const allTables = await listTables(CT_NOTES_DOC_ID)
-    const candidateTables = allTables.filter(t => t.name.includes('Candidate Mapping'))
-    if (candidateTables.length === 0) {
-      return NextResponse.json({ error: 'No Candidate Mapping tables found', allTableNames: allTables.map(t => t.name) })
-    }
-    const firstTable = candidateTables[0]
-    const { rows } = await listRows(CT_NOTES_DOC_ID, firstTable.id, undefined, true)
+    const CODA_API_BASE = 'https://coda.io/apis/v1'
+    const headers = { Authorization: `Bearer ${process.env.CODA_API_TOKEN}` }
+
+    // Fetch all pages in the doc
+    const res = await fetch(`${CODA_API_BASE}/docs/${CT_NOTES_DOC_ID}/pages?limit=200`, { headers })
+    const data = await res.json()
+    const pages: Array<{ id: string; name: string; parent?: { id: string; name: string } }> = data.items ?? []
+
+    // Find "Candidate Notes" pages
+    const candidateNotePages = pages.filter(p => p.name === 'Candidate Notes')
+
+    // Find candidate pages (children of "Candidate Notes" pages)
+    const candidateNotePageIds = new Set(candidateNotePages.map(p => p.id))
+    const candidatePages = pages.filter(p => p.parent && candidateNotePageIds.has(p.parent.id))
+
     return NextResponse.json({
-      totalCandidateTables: candidateTables.length,
-      firstTableName: firstTable.name,
-      firstTableId: firstTable.id,
-      rowCount: rows.length,
-      sampleRow: rows[0] ?? null,
+      totalPages: pages.length,
+      candidateNotesSections: candidateNotePages.length,
+      totalCandidatePages: candidatePages.length,
+      sampleCandidates: candidatePages.slice(0, 5).map(p => ({
+        id: p.id,
+        name: p.name,
+        underSearch: p.parent?.name,
+      })),
+      allPageNames: pages.slice(0, 30).map(p => ({ name: p.name, parent: p.parent?.name })),
     })
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Unknown error' }, { status: 500 })
