@@ -20,16 +20,23 @@ export async function GET() {
     const candidateNotePageIds = new Set(candidateNotePages.map(p => p.id))
     const candidatePages = pages.filter(p => p.parent && candidateNotePageIds.has(p.parent.id))
 
+    // Find pages under "Open Searches" and "Closed Searches"
+    const searchSections = pages.filter(p => p.name === 'Open Searches' || p.name === 'Closed Searches')
+    const searchSectionIds = new Set(searchSections.map(p => p.id))
+
+    // Direct children of Open/Closed Searches = individual search pages
+    const searchPages = pages.filter(p => p.parent && searchSectionIds.has(p.parent.id))
+    const searchPageIds = new Set(searchPages.map(p => p.id))
+
+    // Children of search pages = sub-sections (e.g. "Candidate Notes", "Client Calls", etc.)
+    const subSections = pages.filter(p => p.parent && searchPageIds.has(p.parent.id))
+
     return NextResponse.json({
       totalPages: pages.length,
-      candidateNotesSections: candidateNotePages.length,
-      totalCandidatePages: candidatePages.length,
-      sampleCandidates: candidatePages.slice(0, 5).map(p => ({
-        id: p.id,
-        name: p.name,
-        underSearch: p.parent?.name,
-      })),
-      allPageNames: pages.slice(0, 30).map(p => ({ name: p.name, parent: p.parent?.name })),
+      searchSections: searchSections.map(p => p.name),
+      searchPages: searchPages.map(p => p.name),
+      subSectionsUnderSearches: subSections.map(p => ({ name: p.name, underSearch: p.parent?.name })),
+      allPageNames: pages.map(p => ({ name: p.name, parent: p.parent?.name })),
     })
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Unknown error' }, { status: 500 })
