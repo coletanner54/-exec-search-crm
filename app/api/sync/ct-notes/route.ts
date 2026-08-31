@@ -22,23 +22,28 @@ export async function GET() {
     const candidateCallsIds = new Set(candidateCallsPages.map(p => p.id))
     const candidatePages = pages.filter(p => p.parent && candidateCallsIds.has(p.parent.id))
 
-    // Export first candidate page to see its content
-    const firstCandidate = candidatePages[0]
-    let pageContent = null
-    if (firstCandidate) {
-      const exportRes = await fetch(`${CODA_API_BASE}/docs/${CT_NOTES_DOC_ID}/pages/${firstCandidate.id}/export`, {
+    // Skip template pages, pick a real candidate
+    const realCandidate = candidatePages.find(p => p.name !== 'Pitch + Questions')
+    let markdownContent = null
+
+    if (realCandidate) {
+      const exportRes = await fetch(`${CODA_API_BASE}/docs/${CT_NOTES_DOC_ID}/pages/${realCandidate.id}/export`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ outputFormat: 'markdown' }),
       })
       const exportJob = await exportRes.json()
       if (exportJob.id) {
-        // Poll for result
         for (let i = 0; i < 10; i++) {
           await new Promise(r => setTimeout(r, 1500))
-          const pollRes = await fetch(`${CODA_API_BASE}/docs/${CT_NOTES_DOC_ID}/pages/${firstCandidate.id}/export/${exportJob.id}`, { headers })
+          const pollRes = await fetch(`${CODA_API_BASE}/docs/${CT_NOTES_DOC_ID}/pages/${realCandidate.id}/export/${exportJob.id}`, { headers })
           const pollData = await pollRes.json()
-          if (pollData.status === 'complete') { pageContent = pollData.downloadLink; break }
+          if (pollData.status === 'complete') {
+            // Fetch the actual markdown content
+            const mdRes = await fetch(pollData.downloadLink)
+            markdownContent = await mdRes.text()
+            break
+          }
           if (pollData.status === 'failed') break
         }
       }
@@ -47,9 +52,8 @@ export async function GET() {
     return NextResponse.json({
       totalCandidates: candidatePages.length,
       sampleCandidateNames: candidatePages.slice(0, 5).map(p => p.name),
-      firstCandidateName: firstCandidate?.name,
-      firstCandidateId: firstCandidate?.id,
-      exportDownloadLink: pageContent,
+      candidateName: realCandidate?.name,
+      markdownContent,
     })
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Unknown error' }, { status: 500 })
