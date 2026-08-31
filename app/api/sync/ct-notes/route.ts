@@ -2,41 +2,54 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { listTables, getAllRows, extractContactFromRow, listRows } from '@/lib/coda'
 
-// GET: diagnostic — explore page hierarchy to find candidate pages
+// GET: diagnostic — export one candidate page to see content format
 export async function GET() {
   try {
     const CODA_API_BASE = 'https://coda.io/apis/v1'
-    const headers = { Authorization: `Bearer ${process.env.CODA_API_TOKEN}` }
+    const headers = { Authorization: `Bearer ${process.env.CODA_API_TOKEN}`, 'Content-Type': 'application/json' }
 
-    // Fetch all pages in the doc
+    // Get all pages
     const res = await fetch(`${CODA_API_BASE}/docs/${CT_NOTES_DOC_ID}/pages?limit=200`, { headers })
     const data = await res.json()
     const pages: Array<{ id: string; name: string; parent?: { id: string; name: string } }> = data.items ?? []
 
-    // Find "Candidate Notes" pages
-    const candidateNotePages = pages.filter(p => p.name === 'Candidate Notes')
-
-    // Find candidate pages (children of "Candidate Notes" pages)
-    const candidateNotePageIds = new Set(candidateNotePages.map(p => p.id))
-    const candidatePages = pages.filter(p => p.parent && candidateNotePageIds.has(p.parent.id))
-
-    // Find pages under "Open Searches" and "Closed Searches"
+    // Find Candidate Calls sections under Open/Closed Searches
     const searchSections = pages.filter(p => p.name === 'Open Searches' || p.name === 'Closed Searches')
     const searchSectionIds = new Set(searchSections.map(p => p.id))
-
-    // Direct children of Open/Closed Searches = individual search pages
     const searchPages = pages.filter(p => p.parent && searchSectionIds.has(p.parent.id))
     const searchPageIds = new Set(searchPages.map(p => p.id))
+    const candidateCallsPages = pages.filter(p => p.parent && searchPageIds.has(p.parent.id) && p.name === 'Candidate Calls')
+    const candidateCallsIds = new Set(candidateCallsPages.map(p => p.id))
+    const candidatePages = pages.filter(p => p.parent && candidateCallsIds.has(p.parent.id))
 
-    // Children of search pages = sub-sections (e.g. "Candidate Notes", "Client Calls", etc.)
-    const subSections = pages.filter(p => p.parent && searchPageIds.has(p.parent.id))
+    // Export first candidate page to see its content
+    const firstCandidate = candidatePages[0]
+    let pageContent = null
+    if (firstCandidate) {
+      const exportRes = await fetch(`${CODA_API_BASE}/docs/${CT_NOTES_DOC_ID}/pages/${firstCandidate.id}/export`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ outputFormat: 'markdown' }),
+      })
+      const exportJob = await exportRes.json()
+      if (exportJob.id) {
+        // Poll for result
+        for (let i = 0; i < 10; i++) {
+          await new Promise(r => setTimeout(r, 1500))
+          const pollRes = await fetch(`${CODA_API_BASE}/docs/${CT_NOTES_DOC_ID}/pages/${firstCandidate.id}/export/${exportJob.id}`, { headers })
+          const pollData = await pollRes.json()
+          if (pollData.status === 'complete') { pageContent = pollData.downloadLink; break }
+          if (pollData.status === 'failed') break
+        }
+      }
+    }
 
     return NextResponse.json({
-      totalPages: pages.length,
-      searchSections: searchSections.map(p => p.name),
-      searchPages: searchPages.map(p => p.name),
-      subSectionsUnderSearches: subSections.map(p => ({ name: p.name, underSearch: p.parent?.name })),
-      allPageNames: pages.map(p => ({ name: p.name, parent: p.parent?.name })),
+      totalCandidates: candidatePages.length,
+      sampleCandidateNames: candidatePages.slice(0, 5).map(p => p.name),
+      firstCandidateName: firstCandidate?.name,
+      firstCandidateId: firstCandidate?.id,
+      exportDownloadLink: pageContent,
     })
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Unknown error' }, { status: 500 })
