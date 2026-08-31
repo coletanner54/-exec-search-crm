@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { RefreshCw, CheckCircle, XCircle, Clock } from 'lucide-react'
+import { RefreshCw, CheckCircle, XCircle, Clock, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { formatDate } from '@/lib/utils'
@@ -12,6 +12,8 @@ export default function SyncPage() {
   const [logs, setLogs] = useState<SyncLog[]>([])
   const [syncing, setSyncing] = useState<string | null>(null)
   const [syncingAll, setSyncingAll] = useState(false)
+  const [syncingCTNotes, setSyncingCTNotes] = useState(false)
+  const [ctNotesResult, setCTNotesResult] = useState<{ contactsAdded: number; contactsUpdated: number; notesAdded: number } | null>(null)
 
   async function fetchData() {
     const [sRes, lRes] = await Promise.all([
@@ -45,6 +47,16 @@ export default function SyncPage() {
     setSyncingAll(false)
   }
 
+  async function syncCTNotes() {
+    setSyncingCTNotes(true)
+    setCTNotesResult(null)
+    const res = await fetch('/api/sync/ct-notes', { method: 'POST' }).catch(() => null)
+    const data = res ? await res.json() : {}
+    if (data.success) setCTNotesResult(data)
+    setSyncingCTNotes(false)
+    fetchData()
+  }
+
   const statusIcon = {
     success: <CheckCircle size={16} className="text-green-500" />,
     error: <XCircle size={16} className="text-red-500" />,
@@ -62,6 +74,32 @@ export default function SyncPage() {
           <RefreshCw size={16} className={`mr-2 ${syncingAll ? 'animate-spin' : ''}`} />
           {syncingAll ? 'Syncing all...' : 'Sync All Active Searches'}
         </Button>
+      </div>
+
+      {/* CT Notes sync */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="bg-purple-100 p-2 rounded-lg">
+              <FileText size={20} className="text-purple-600" />
+            </div>
+            <div>
+              <p className="font-semibold text-gray-900">CT Notes</p>
+              <p className="text-sm text-gray-500">Pulls all candidates from your Coda notes database</p>
+            </div>
+          </div>
+          <Button onClick={syncCTNotes} disabled={syncingCTNotes} variant="outline">
+            <RefreshCw size={14} className={`mr-2 ${syncingCTNotes ? 'animate-spin' : ''}`} />
+            {syncingCTNotes ? 'Syncing...' : 'Sync CT Notes'}
+          </Button>
+        </div>
+        {ctNotesResult && (
+          <div className="mt-3 pt-3 border-t border-gray-100 flex gap-6 text-sm">
+            <span className="text-green-600">+{ctNotesResult.contactsAdded} contacts added</span>
+            <span className="text-blue-600">~{ctNotesResult.contactsUpdated} updated</span>
+            <span className="text-gray-500">+{ctNotesResult.notesAdded} notes</span>
+          </div>
+        )}
       </div>
 
       <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6 text-sm text-blue-800">

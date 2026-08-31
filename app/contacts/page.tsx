@@ -1,14 +1,14 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { Search, Mail, Phone, Link2, Building2, MapPin, Plus, X } from 'lucide-react'
+import { Search, Phone, Link2, Plus, X, Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { initials, formatDate } from '@/lib/utils'
-import type { Contact } from '@/lib/supabase'
+import type { Contact, ContactNote } from '@/lib/supabase'
 
-type ContactWithNotes = Contact & { notes?: Array<{ content: string; source: string }> }
+type ContactWithNotes = Contact & { notes?: ContactNote[] }
 
 export default function ContactsPage() {
   const [contacts, setContacts] = useState<Contact[]>([])
@@ -19,6 +19,8 @@ export default function ContactsPage() {
   const [selected, setSelected] = useState<ContactWithNotes | null>(null)
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({ full_name: '', email: '', phone: '', company: '', title: '', linkedin_url: '', location: '' })
+  const [newNote, setNewNote] = useState('')
+  const [savingNote, setSavingNote] = useState(false)
 
   const fetchContacts = useCallback(async () => {
     setLoading(true)
@@ -37,6 +39,7 @@ export default function ContactsPage() {
     const res = await fetch(`/api/contacts/${contact.id}/notes`).catch(() => null)
     const data = res ? await res.json() : {}
     setSelected({ ...contact, notes: data.notes ?? [] })
+    setNewNote('')
   }
 
   async function addContact(e: React.FormEvent) {
@@ -47,15 +50,38 @@ export default function ContactsPage() {
     fetchContacts()
   }
 
+  async function saveNote() {
+    if (!selected || !newNote.trim()) return
+    setSavingNote(true)
+    const res = await fetch(`/api/contacts/${selected.id}/notes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: newNote.trim() }),
+    }).catch(() => null)
+    const data = res ? await res.json() : {}
+    if (data.note) {
+      setSelected(s => s ? { ...s, notes: [data.note, ...(s.notes ?? [])] } : s)
+      setNewNote('')
+    }
+    setSavingNote(false)
+  }
+
+  const sourceLabel: Record<string, string> = {
+    'ct-notes': 'CT Notes',
+    'coda': 'Coda',
+    'onenote': 'OneNote',
+    'manual': 'Manual',
+  }
+
   return (
     <div className="flex h-screen">
       {/* Contact list */}
-      <div className="w-96 border-r border-gray-200 bg-white flex flex-col">
+      <div className="w-80 border-r border-gray-200 bg-white flex flex-col flex-shrink-0">
         <div className="p-4 border-b border-gray-200">
           <div className="flex items-center justify-between mb-3">
             <div>
               <h1 className="text-lg font-bold text-gray-900">Contacts</h1>
-              <p className="text-xs text-gray-500">{total.toLocaleString()} golden records</p>
+              <p className="text-xs text-gray-500">{total.toLocaleString()} records</p>
             </div>
             <Button size="sm" onClick={() => setShowAdd(true)}>
               <Plus size={14} className="mr-1" /> Add
@@ -64,7 +90,7 @@ export default function ContactsPage() {
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <Input
-              placeholder="Search by name, company, email..."
+              placeholder="Search by name, company..."
               value={query}
               onChange={e => { setQuery(e.target.value); setPage(1) }}
               className="pl-9"
@@ -87,12 +113,14 @@ export default function ContactsPage() {
                 className={`w-full text-left p-4 border-b border-gray-100 hover:bg-gray-50 transition-colors ${selected?.id === contact.id ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''}`}
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-sm font-bold flex-shrink-0">
+                  <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold flex-shrink-0">
                     {initials(contact.full_name)}
                   </div>
                   <div className="min-w-0">
-                    <p className="font-medium text-gray-900 truncate">{contact.full_name}</p>
-                    <p className="text-xs text-gray-500 truncate">{contact.title}{contact.company ? ` · ${contact.company}` : ''}</p>
+                    <p className="font-medium text-gray-900 truncate text-sm">{contact.full_name}</p>
+                    <p className="text-xs text-gray-400 truncate">
+                      {[contact.title, contact.company].filter(Boolean).join(' · ') || 'No details'}
+                    </p>
                   </div>
                 </div>
               </button>
@@ -100,7 +128,6 @@ export default function ContactsPage() {
           )}
         </div>
 
-        {/* Pagination */}
         {total > 50 && (
           <div className="p-3 border-t border-gray-200 flex items-center justify-between text-sm">
             <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="text-blue-600 disabled:text-gray-300">Prev</button>
@@ -111,71 +138,113 @@ export default function ContactsPage() {
       </div>
 
       {/* Contact detail */}
-      <div className="flex-1 overflow-y-auto p-8">
+      <div className="flex-1 overflow-y-auto bg-gray-50">
         {selected ? (
-          <div className="max-w-2xl">
-            <div className="flex items-start gap-4 mb-6">
-              <div className="w-16 h-16 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xl font-bold">
-                {initials(selected.full_name)}
-              </div>
-              <div className="flex-1">
-                <h2 className="text-2xl font-bold text-gray-900">{selected.full_name}</h2>
-                {selected.title && <p className="text-gray-600">{selected.title}</p>}
-                {selected.company && <p className="text-gray-500">{selected.company}</p>}
-                <div className="flex gap-2 mt-2 flex-wrap">
-                  {selected.sources.map(s => (
-                    <Badge key={s} variant="secondary">{s}</Badge>
-                  ))}
+          <div className="max-w-2xl mx-auto p-8">
+            {/* Header */}
+            <div className="bg-white rounded-xl border border-gray-200 p-6 mb-4">
+              <div className="flex items-start gap-4">
+                <div className="w-14 h-14 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-lg font-bold flex-shrink-0">
+                  {initials(selected.full_name)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-2xl font-bold text-gray-900">{selected.full_name}</h2>
+                  {selected.title && (
+                    <p className="text-gray-700 mt-0.5">{selected.title}</p>
+                  )}
+                  {selected.company && (
+                    <p className="text-gray-500 text-sm">{selected.company}</p>
+                  )}
+
+                  <div className="flex items-center gap-2 mt-3 flex-wrap">
+                    {selected.linkedin_url && (
+                      <a
+                        href={selected.linkedin_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        <Link2 size={14} />
+                        LinkedIn
+                      </a>
+                    )}
+                    {selected.phone && (
+                      <a
+                        href={`tel:${selected.phone}`}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 text-gray-700 text-sm rounded-lg hover:bg-gray-200 transition-colors"
+                      >
+                        <Phone size={14} />
+                        {selected.phone}
+                      </a>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2 mt-3 flex-wrap">
+                    {selected.sources.map(s => (
+                      <Badge key={s} variant="secondary">{sourceLabel[s] ?? s}</Badge>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 mb-6">
-              {selected.email && (
-                <a href={`mailto:${selected.email}`} className="flex items-center gap-2 text-sm text-gray-600 hover:text-blue-600">
-                  <Mail size={16} className="text-gray-400" /> {selected.email}
-                </a>
-              )}
-              {selected.phone && (
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <Phone size={16} className="text-gray-400" /> {selected.phone}
-                </div>
-              )}
-              {selected.linkedin_url && (
-                <a href={selected.linkedin_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-gray-600 hover:text-blue-600">
-                  <Link2 size={16} className="text-gray-400" /> LinkedIn Profile
-                </a>
-              )}
-              {selected.location && (
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <MapPin size={16} className="text-gray-400" /> {selected.location}
-                </div>
-              )}
-            </div>
+            {/* Notes */}
+            <div className="bg-white rounded-xl border border-gray-200 p-6">
+              <h3 className="text-base font-semibold text-gray-900 mb-4">Notes</h3>
 
-            {selected.notes && selected.notes.length > 0 && (
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">Notes</h3>
-                <div className="space-y-3">
-                  {selected.notes.map((note, i) => (
-                    <div key={i} className="bg-gray-50 rounded-lg p-4">
+              {/* Existing notes */}
+              {selected.notes && selected.notes.length > 0 ? (
+                <div className="space-y-3 mb-6">
+                  {selected.notes.map((note) => (
+                    <div key={note.id} className="bg-gray-50 rounded-lg p-4">
                       <div className="flex items-center gap-2 mb-2">
-                        <Badge variant="secondary">{note.source}</Badge>
+                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                          {sourceLabel[note.source] ?? note.source}
+                        </span>
+                        {note.note_date && (
+                          <span className="text-xs text-gray-400">· {formatDate(note.note_date)}</span>
+                        )}
                       </div>
-                      <p className="text-sm text-gray-700 whitespace-pre-line">{note.content}</p>
+                      <p className="text-sm text-gray-700 whitespace-pre-line leading-relaxed">{note.content}</p>
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+              ) : (
+                <p className="text-sm text-gray-400 mb-6">No notes yet for this contact.</p>
+              )}
 
-            <p className="text-xs text-gray-400 mt-6">Last updated {formatDate(selected.updated_at)}</p>
+              {/* Add note */}
+              <div className="border-t border-gray-100 pt-4">
+                <p className="text-sm font-medium text-gray-700 mb-2">Add a note</p>
+                <textarea
+                  value={newNote}
+                  onChange={e => setNewNote(e.target.value)}
+                  placeholder="Type your note here..."
+                  rows={3}
+                  className="w-full text-sm border border-gray-200 rounded-lg p-3 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <div className="flex justify-end mt-2">
+                  <Button
+                    size="sm"
+                    onClick={saveNote}
+                    disabled={savingNote || !newNote.trim()}
+                  >
+                    <Send size={13} className="mr-1.5" />
+                    {savingNote ? 'Saving...' : 'Save Note'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-400 mt-3 px-1">Last updated {formatDate(selected.updated_at)}</p>
           </div>
         ) : (
           <div className="flex items-center justify-center h-full text-gray-400">
             <div className="text-center">
-              <Building2 size={48} className="mx-auto mb-3 opacity-30" />
-              <p>Select a contact to view details</p>
+              <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-3">
+                <Search size={28} className="opacity-40" />
+              </div>
+              <p className="text-sm">Select a contact to view details</p>
             </div>
           </div>
         )}
@@ -191,11 +260,11 @@ export default function ContactsPage() {
             </div>
             <form onSubmit={addContact} className="space-y-3">
               <Input required placeholder="Full name *" value={form.full_name} onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))} />
-              <Input placeholder="Email" type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
-              <Input placeholder="Phone" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
+              <Input placeholder="Current role" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
               <Input placeholder="Company" value={form.company} onChange={e => setForm(f => ({ ...f, company: e.target.value }))} />
-              <Input placeholder="Title / Role" value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
               <Input placeholder="LinkedIn URL" value={form.linkedin_url} onChange={e => setForm(f => ({ ...f, linkedin_url: e.target.value }))} />
+              <Input placeholder="Cell number" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
+              <Input placeholder="Email" type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
               <Input placeholder="Location" value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))} />
               <div className="flex gap-2 pt-2">
                 <Button type="submit" className="flex-1">Add Contact</Button>
