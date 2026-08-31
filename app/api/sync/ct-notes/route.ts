@@ -1,6 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { listTables, getAllRows, extractContactFromRow } from '@/lib/coda'
+import { listTables, getAllRows, extractContactFromRow, listRows } from '@/lib/coda'
+
+// GET: diagnostic — returns first table name + first 2 rows of raw data
+export async function GET() {
+  try {
+    const allTables = await listTables(CT_NOTES_DOC_ID)
+    const candidateTables = allTables.filter(t => t.name.includes('Candidate Mapping'))
+    if (candidateTables.length === 0) {
+      return NextResponse.json({ error: 'No Candidate Mapping tables found', allTableNames: allTables.map(t => t.name) })
+    }
+    const firstTable = candidateTables[0]
+    const { rows } = await listRows(CT_NOTES_DOC_ID, firstTable.id, undefined, true)
+    return NextResponse.json({
+      totalCandidateTables: candidateTables.length,
+      firstTableName: firstTable.name,
+      firstTableId: firstTable.id,
+      rowCount: rows.length,
+      sampleRow: rows[0] ?? null,
+    })
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Unknown error' }, { status: 500 })
+  }
+}
 
 const CT_NOTES_DOC_ID = 'e14ajCn21C'
 const TABLES_PER_BATCH = 3
