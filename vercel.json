@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "app/api/sync/ct-notes/route.ts": {
+      "maxDuration": 60
+    }
+  },
   "crons": [
     {
       "path": "/api/cron",
